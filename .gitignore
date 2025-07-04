@@ -1,0 +1,38 @@
+# Personal transaction data
+transactions.txt
+sahal_analysis.json
+sahal_analysis.csv
+grouped_by_name.csv
+parsed_transactions.csv
+unmatched_transactions.txt
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp 

@@ -1,0 +1,21 @@
+[SAHAL] TransferId: 1234567890, You have received airtime of $5.00 from 252907123456
+ Tuesday, January 15, 2024 · 10:30 AM 
+[SAHAL] Tix: 1234567891, $25.00 ayaad u dirtay John Doe(252907654321) Tar: 15/01/24 11:45:30, Haraagaagu waa $30.00
+ Tuesday, January 15, 2024 · 2:15 PM 
+[SAHAL] Tix: 1234567892, Waxaad $15.00 ka heshay Jane Smith(252907789012) Tar: 15/01/24 16:20:15, Haraagaagu waa $45.00
+ Wednesday, January 16, 2024 · 9:00 AM 
+[SAHAL] Tix: 1234567893, Waxaad $10.00 ugu shubtay 252907345678 Tar: 16/01/24 14:30:45, Haraagaagu waa $35.00
+ Wednesday, January 16, 2024 · 7:30 PM 
+[SAHAL] Kusoo dhawaaw RESTAURANT ABC 252905123456 Tixraac: 1234567894, $8.50 ayaad u dirtay (123456). Haraagaagu waa $26.50.
+ Thursday, January 17, 2024 · 12:45 PM 
+[SAHAL] Tix: 1234567895, Waxaad $20.00 ka heshay Mike Johnson(252907456789) Tar: 17/01/24 18:15:20, Haraagaagu waa $46.50
+ Friday, January 18, 2024 · 11:20 AM 
+[SAHAL] TransferId: 1234567896, You have received airtime of $3.00 from 252907123456
+ Friday, January 18, 2024 · 3:45 PM 
+[SAHAL] Tix: 1234567897, $12.00 ayaad u dirtay Sarah Wilson(252907567890) Tar: 18/01/24 20:10:30, Haraagaagu waa $34.50
+ Saturday, January 19, 2024 · 1:30 PM 
+[SAHAL] Kusoo dhawaaw SUPERMARKET XYZ 252905789012 Tixraac: 1234567898, $15.75 ayaad u dirtay (789012). Haraagaagu waa $18.75.
+ Sunday, January 20, 2024 · 10:15 AM 
+[SAHAL] Tix: 1234567899, Waxaad $30.00 ka heshay David Brown(252907890123) Tar: 20/01/24 15:45:10, Haraagaagu waa $48.75
+ Monday, January 21, 2024 · 9:30 AM 
+[SAHAL] Tix: 1234567900, $7.25 ayaad u dirtay Lisa Davis(252907012345) Tar: 21/01/24 13:20:45, Haraagaagu waa $41.50 
