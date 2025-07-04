@@ -1,4 +1,4 @@
-# SAHAL Money Transfer Transaction Analyzer
+# 💰 SAHAL Money Transfer Tracker
 
 A comprehensive tool for analyzing SAHAL mobile money transfer transactions with date range tracking and detailed analytics.
 
@@ -75,10 +75,10 @@ Your SAHAL transaction file should contain blocks separated by `[SAHAL]` with pa
 
 ```
 [SAHAL]
-$50.00 ayaad u dirtay John Doe(
+$50.00 ayaad u dirtay QAWDHAN AXMAD WARSAME(
 
 [SAHAL]
-Waxaad $25.00 ka heshay Jane Smith(
+Waxaad $25.00 ka heshay CAASHO CALI GEELLE(
 
 [SAHAL]
 Waxaad $10.00 ugu shubtay 252907123456
