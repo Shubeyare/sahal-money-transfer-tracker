@@ -4,7 +4,17 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from collections import defaultdict
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+import io
+import base64
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -90,7 +100,8 @@ def extract_transactions(text):
                 'name': m.group(2).strip(), 
                 'amount': float(m.group(1)),
                 'category': 'person',
-                'date': block_date
+                'date': block_date,
+                'raw_block': block
             }
         
         # Pattern 2: Sent airtime to phone number
@@ -100,7 +111,8 @@ def extract_transactions(text):
                 'name': m.group(2), 
                 'amount': float(m.group(1)),
                 'category': 'airtime',
-                'date': block_date
+                'date': block_date,
+                'raw_block': block
             }
         
         # Pattern 3: Received money from person
@@ -110,7 +122,8 @@ def extract_transactions(text):
                 'name': m.group(2).strip(), 
                 'amount': float(m.group(1)),
                 'category': 'person',
-                'date': block_date
+                'date': block_date,
+                'raw_block': block
             }
         
         # Pattern 4: Received airtime from phone number
@@ -120,7 +133,52 @@ def extract_transactions(text):
                 'name': m.group(2), 
                 'amount': float(m.group(1)),
                 'category': 'airtime',
-                'date': block_date
+                'date': block_date,
+                'raw_block': block
+            }
+        
+        # Pattern 5: Business transactions (Kusoo dhawaaw)
+        elif m := re.search(r"Kusoo dhawaaw\s+(.+?)\s+Tixraac:\s+\d+,\s+\$([\d.]+)\s+ayaad u dirtay", block):
+            transaction = {
+                'type': 'sent', 
+                'name': m.group(1).strip(), 
+                'amount': float(m.group(2)),
+                'category': 'business',
+                'date': block_date,
+                'raw_block': block
+            }
+        
+        # Pattern 6: Alternative business transaction format
+        elif m := re.search(r"Kusoo dhawaaw\s+(.+?)\s+\d+\s+Tixraac:\s+\d+,\s+\$([\d.]+)\s+ayaad u dirtay", block):
+            transaction = {
+                'type': 'sent', 
+                'name': m.group(1).strip(), 
+                'amount': float(m.group(2)),
+                'category': 'business',
+                'date': block_date,
+                'raw_block': block
+            }
+        
+        # Pattern 7: Business transactions with different spacing
+        elif m := re.search(r"Kusoo dhawaaw\s+(.+?)\s+Tixraac:\s+\d+,\s+\$([\d.]+)\s+ayaad u dirtay", block, re.DOTALL):
+            transaction = {
+                'type': 'sent', 
+                'name': m.group(1).strip(), 
+                'amount': float(m.group(2)),
+                'category': 'business',
+                'date': block_date,
+                'raw_block': block
+            }
+        
+        # Pattern 8: Business transactions with phone numbers
+        elif m := re.search(r"Kusoo dhawaaw\s+(.+?)\s+\d{9,}\s+Tixraac:\s+\d+,\s+\$([\d.]+)\s+ayaad u dirtay", block):
+            transaction = {
+                'type': 'sent', 
+                'name': m.group(1).strip(), 
+                'amount': float(m.group(2)),
+                'category': 'business',
+                'date': block_date,
+                'raw_block': block
             }
 
         if transaction:
@@ -142,6 +200,39 @@ def extract_transactions(text):
 
     logger.info(f"Extracted {len(transactions)} transactions, {len(unmatched_blocks)} unmatched blocks")
     return transactions, unmatched_blocks, date_range
+
+def process_csv_upload(uploaded_file):
+    """Process uploaded CSV file and convert to transaction format."""
+    try:
+        df = pd.read_csv(uploaded_file)
+        
+        # Check if it's already in the right format
+        if 'Name' in df.columns and 'Sent' in df.columns and 'Received' in df.columns:
+            return df
+        
+        # Try to convert from raw transaction format
+        transactions = []
+        for _, row in df.iterrows():
+            if 'type' in row and 'name' in row and 'amount' in row:
+                transaction = {
+                    'type': row['type'],
+                    'name': row['name'],
+                    'amount': float(row['amount']),
+                    'category': row.get('category', 'unknown'),
+                    'date': pd.to_datetime(row.get('date', datetime.now())),
+                    'raw_block': row.get('raw_block', '')
+                }
+                transactions.append(transaction)
+        
+        if transactions:
+            return group_transactions(transactions)
+        else:
+            st.error("CSV format not recognized. Please upload a SAHAL text file or properly formatted CSV.")
+            return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"Error processing CSV: {str(e)}")
+        return pd.DataFrame()
 
 # ========== DASHBOARD LOGIC ==========
 def group_transactions(transactions):
@@ -234,46 +325,233 @@ def calculate_summary_stats(df, date_range=None):
     
     return stats
 
+# ========== EXPORT FUNCTIONS ==========
+def generate_pdf_report(df, stats, date_range=None):
+    """Generate PDF report of the analysis."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    elements = []
+    
+    # Styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=30,
+        alignment=1  # Center alignment
+    )
+    
+    # Title
+    elements.append(Paragraph("SAHAL Transaction Analysis Report", title_style))
+    elements.append(Spacer(1, 20))
+    
+    # Summary Statistics
+    elements.append(Paragraph("Summary Statistics", styles['Heading2']))
+    summary_data = [
+        ['Metric', 'Value'],
+        ['Total Sent', f"${stats['total_sent']:,.2f}"],
+        ['Total Received', f"${stats['total_received']:,.2f}"],
+        ['Net Balance', f"${stats['total_net']:,.2f}"],
+        ['Total Transactions', f"{stats['total_transactions']:,}"],
+        ['Unique Contacts', f"{len(df)}"]
+    ]
+    
+    if date_range:
+        summary_data.extend([
+            ['Date Range', f"{date_range['earliest_date'].strftime('%B %d, %Y')} - {date_range['latest_date'].strftime('%B %d, %Y')}"],
+            ['Span', f"{date_range['date_span_days']} days"]
+        ])
+    
+    summary_table = Table(summary_data)
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 20))
+    
+    # Top Transactions Table
+    elements.append(Paragraph("Top Transactions by Net Amount", styles['Heading2']))
+    top_transactions = df.nlargest(10, 'Net')[['Name', 'Sent', 'Received', 'Net']]
+    top_data = [['Name', 'Sent', 'Received', 'Net']]
+    for _, row in top_transactions.iterrows():
+        top_data.append([
+            row['Name'][:30],  # Truncate long names
+            f"${row['Sent']:.2f}",
+            f"${row['Received']:.2f}",
+            f"${row['Net']:.2f}"
+        ])
+    
+    top_table = Table(top_data)
+    top_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 8)
+    ]))
+    elements.append(top_table)
+    
+    # Build PDF
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+def get_download_link(data, filename, text):
+    """Generate download link for files."""
+    b64 = base64.b64encode(data).decode()
+    href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">{text}</a>'
+    return href
+
 # ========== STREAMLIT UI ==========
 def main():
     st.set_page_config(
         page_title="SAHAL Money Tracker", 
         page_icon="💰",
         layout="wide",
-        initial_sidebar_state="expanded"
+        initial_sidebar_state="collapsed"  # Mobile-friendly: collapsed sidebar
     )
+    
+    # Custom CSS for mobile optimization
+    st.markdown("""
+    <style>
+    @media (max-width: 768px) {
+        .main .block-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+        .stDataFrame {
+            font-size: 12px;
+        }
+        .stMetric {
+            font-size: 14px;
+        }
+    }
+    .metric-container {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     st.title("💰 SAHAL Money Transfer Tracker")
     st.markdown("---")
     
-    # Sidebar
-    st.sidebar.header("📊 Dashboard Options")
-    show_raw_data = st.sidebar.checkbox("Show Raw Transaction Data", value=False)
-    show_unmatched = st.sidebar.checkbox("Show Unmatched Transactions", value=False)
+    # File upload section with both text and CSV support
+    st.subheader("📁 Upload Your Data")
     
-    # File upload
-    uploaded = st.file_uploader(
-        "📁 Upload your SAHAL transaction text file", 
-        type="txt",
-        help="Upload the text file containing your SAHAL transaction history"
+    upload_option = st.radio(
+        "Choose upload type:",
+        ["SAHAL Text File", "CSV File", "RAW Data"],
+        horizontal=True
     )
-
-    if uploaded:
-        try:
-            # Read and process file
-            raw_text = uploaded.read().decode("utf-8")
-            cleaned = clean_input(raw_text)
-            transactions, unmatched, date_range = extract_transactions(cleaned)
+    
+    uploaded = None
+    pasted_csv = None
+    if upload_option == "SAHAL Text File":
+        uploaded = st.file_uploader(
+            "Upload your SAHAL transaction text file", 
+            type="txt",
+            help="Upload the text file containing your SAHAL transaction history"
+        )
+    elif upload_option == "CSV File":
+        uploaded = st.file_uploader(
+            "Upload your CSV file", 
+            type="csv",
+            help="Upload a CSV file with transaction data"
+        )
+    elif upload_option == "RAW Data":
+        # Initialize or increment the key counter in session state
+        if 'raw_data_key_counter' not in st.session_state:
+            st.session_state.raw_data_key_counter = 0
+        
+        with st.form("raw_data_form"):
+            pasted_csv = st.text_area(
+                "Paste your RAW Data here:",
+                height=300,
+                placeholder="Name,Sent,Received,Net\nAxmed Maxamed,10.00,0.00,10.00\nFadumo Cali,0.00,5.00,5.00\nCabdirahman Yusuf,2.50,1.25,1.25\nHodan Warsame,0.00,3.00,3.00\n1234567,5.00,0.00,5.00\n252900011122,0.00,7.00,7.00",
+                key=f"raw_data_input_{st.session_state.raw_data_key_counter}"
+            )
+            submit_button = st.form_submit_button("Process Data")
+        
+        # Process data from session state if available
+        if 'pending_raw_data' in st.session_state and st.session_state.pending_raw_data:
+            data_to_process = st.session_state.pending_raw_data
+            st.session_state.pending_raw_data = ""  # Clear the pending data
             
-            if not transactions:
-                st.error("❌ No transactions found in the uploaded file. Please check the file format.")
+            st.info("📝 Processing raw SAHAL text data...")
+            cleaned = clean_input(data_to_process)
+            transactions, unmatched, date_range = extract_transactions(cleaned)
+            if transactions:
+                df = group_transactions(transactions)
+                st.success(f"✅ Successfully parsed {len(transactions)} transactions from raw text!")
+                with st.expander("📋 Preview of Parsed Data"):
+                    st.dataframe(df.head(10), use_container_width=True)
+                if unmatched:
+                    with st.expander(f"❓ Unmatched Blocks ({len(unmatched)})"):
+                        for i, block in enumerate(unmatched[:5], 1):
+                            st.text(f"Block {i}: {block[:100]}...")
+                        if len(unmatched) > 5:
+                            st.info(f"... and {len(unmatched) - 5} more unmatched blocks")
+            else:
+                st.error("❌ No transactions found in the pasted text. Please check the format.")
+                return
+        
+        # Handle new form submission
+        elif submit_button and pasted_csv and pasted_csv.strip():
+            # Store the data in session state before clearing
+            st.session_state.pending_raw_data = pasted_csv
+            # Increment the key counter to force the field to clear on next render
+            st.session_state.raw_data_key_counter += 1
+            st.rerun()
+
+    if uploaded or (pasted_csv and pasted_csv.strip()):
+        try:
+            if upload_option == "SAHAL Text File":
+                raw_text = uploaded.read().decode("utf-8")
+                cleaned = clean_input(raw_text)
+                transactions, unmatched, date_range = extract_transactions(cleaned)
+                if not transactions:
+                    st.error("❌ No transactions found in the uploaded file. Please check the file format.")
+                    return
+                df = group_transactions(transactions)
+            elif upload_option == "CSV File":
+                df = process_csv_upload(uploaded)
+                date_range = None
+                unmatched = []
+            elif upload_option == "RAW Data":
+                # The parsing is already done above, just use the results
+                if 'df' not in locals():
+                    st.error("❌ Error processing pasted text. Please try again.")
+                    return
+                # df, date_range, and unmatched are already set above
+                pass
+            
+            if df.empty:
+                st.error("❌ No valid data found in the uploaded file.")
                 return
             
-            # Process transactions
-            df = group_transactions(transactions)
+            # Calculate stats for the data
             stats = calculate_summary_stats(df, date_range)
             
-            # Display summary metrics
+            # Display summary metrics in mobile-friendly layout
+            st.markdown("---")
+            st.subheader("📊 Summary Statistics")
+            
+            # Use columns for better mobile layout
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("💸 Total Sent", f"${stats['total_sent']:,.2f}")
@@ -283,7 +561,7 @@ def main():
                 st.metric("⚖️ Net Balance", f"${stats['total_net']:,.2f}", 
                          delta=f"{stats['total_net']:+.2f}")
             with col4:
-                st.metric("📊 Total Transactions", f"{stats['total_transactions']:,}")
+                st.metric("📊 Transactions", f"{stats['total_transactions']:,}")
             
             # Display date range information
             if 'date_range' in stats:
@@ -300,19 +578,56 @@ def main():
                 with col4:
                     st.metric("📈 Dates Found", f"{date_range['total_dates_found']}")
             
+            # Export section
+            st.markdown("---")
+            st.subheader("📤 Export Options")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                # CSV Export
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="📄 Download CSV",
+                    data=csv,
+                    file_name=f"sahal_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+            
+            with col2:
+                # JSON Export
+                json_data = df.to_json(orient='records', indent=2)
+                st.download_button(
+                    label="📋 Download JSON",
+                    data=json_data,
+                    file_name=f"sahal_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+            
+            with col3:
+                # PDF Export
+                if st.button("📑 Generate PDF Report"):
+                    pdf_buffer = generate_pdf_report(df, stats, date_range)
+                    st.download_button(
+                        label="📑 Download PDF",
+                        data=pdf_buffer.getvalue(),
+                        file_name=f"sahal_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        mime="application/pdf"
+                    )
+            
             st.markdown("---")
             
             # Main content tabs
             tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                "📋 Transaction Summary", 
-                "📈 Charts & Analytics", 
-                "👥 People Analysis",
+                "📋 Transactions", 
+                "📈 Charts", 
+                "👥 People",
                 "🔍 Raw Data",
                 "❓ Unmatched"
             ])
             
             with tab1:
-                st.subheader("📋 Complete Transaction Summary")
+                st.subheader("📋 Transaction Summary")
                 st.dataframe(
                     df.sort_values(by="Net", ascending=False), 
                     use_container_width=True,
@@ -320,31 +635,43 @@ def main():
                 )
             
             with tab2:
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.subheader("💸 Top 10 Money Sent")
-                    if not df.empty:
-                        top_sent = df.nlargest(10, 'Sent')[['Name', 'Sent']]
-                        st.bar_chart(top_sent.set_index('Name')['Sent'])
-                
-                with col2:
-                    st.subheader("💰 Top 10 Money Received")
-                    if not df.empty:
-                        top_received = df.nlargest(10, 'Received')[['Name', 'Received']]
-                        st.bar_chart(top_received.set_index('Name')['Received'])
-                
-                # Pie chart for overall sent vs received
-                st.subheader("🔄 Overall Sent vs Received")
-                if stats['total_sent'] > 0 or stats['total_received'] > 0:
-                    fig, ax = plt.subplots(figsize=(8, 6))
-                    labels = ['Sent', 'Received']
-                    sizes = [stats['total_sent'], stats['total_received']]
-                    colors = ['#ff6b6b', '#4ecdc4']
+                # Use Plotly for better mobile charts
+                if not df.empty:
+                    col1, col2 = st.columns(2)
                     
-                    ax.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
-                    ax.axis('equal')
-                    st.pyplot(fig)
+                    with col1:
+                        st.subheader("💸 Top 10 Money Sent")
+                        top_sent = df.nlargest(10, 'Sent')
+                        fig_sent = px.bar(
+                            top_sent, 
+                            x='Name', 
+                            y='Sent',
+                            title="Top 10 Money Sent"
+                        )
+                        fig_sent.update_layout(xaxis_tickangle=-45, height=400)
+                        st.plotly_chart(fig_sent, use_container_width=True)
+                    
+                    with col2:
+                        st.subheader("💰 Top 10 Money Received")
+                        top_received = df.nlargest(10, 'Received')
+                        fig_received = px.bar(
+                            top_received, 
+                            x='Name', 
+                            y='Received',
+                            title="Top 10 Money Received"
+                        )
+                        fig_received.update_layout(xaxis_tickangle=-45, height=400)
+                        st.plotly_chart(fig_received, use_container_width=True)
+                    
+                    # Pie chart for overall sent vs received
+                    st.subheader("🔄 Overall Sent vs Received")
+                    fig_pie = go.Figure(data=[go.Pie(
+                        labels=['Sent', 'Received'],
+                        values=[stats['total_sent'], stats['total_received']],
+                        hole=0.3
+                    )])
+                    fig_pie.update_layout(height=400)
+                    st.plotly_chart(fig_pie, use_container_width=True)
             
             with tab3:
                 col1, col2 = st.columns(2)
@@ -364,23 +691,22 @@ def main():
                         st.info("ℹ️ No one owes you money.")
             
             with tab4:
-                if show_raw_data:
-                    st.subheader("🔍 Raw Transaction Data")
+                st.subheader("🔍 Raw Transaction Data")
+                if 'transactions' in locals():
                     raw_df = pd.DataFrame(transactions)
                     st.dataframe(raw_df, use_container_width=True)
                 else:
-                    st.info("Enable 'Show Raw Transaction Data' in the sidebar to view detailed transaction information.")
+                    st.info("Raw transaction data not available for CSV uploads.")
             
             with tab5:
-                if show_unmatched and unmatched:
+                if unmatched:
                     st.subheader("❓ Unmatched Transaction Blocks")
                     st.warning(f"Found {len(unmatched)} transaction blocks that couldn't be parsed:")
-                    for i, block in enumerate(unmatched[:10], 1):  # Show first 10
-                        st.text_area(f"Block {i}", block, height=100)
-                    if len(unmatched) > 10:
-                        st.info(f"... and {len(unmatched) - 10} more unmatched blocks")
-                elif unmatched:
-                    st.info(f"Found {len(unmatched)} unmatched transaction blocks. Enable 'Show Unmatched Transactions' in the sidebar to view them.")
+                    for i, block in enumerate(unmatched[:5], 1):  # Show first 5 on mobile
+                        with st.expander(f"Block {i}"):
+                            st.text(block)
+                    if len(unmatched) > 5:
+                        st.info(f"... and {len(unmatched) - 5} more unmatched blocks")
                 else:
                     st.success("✅ All transactions were successfully parsed!")
             
@@ -389,25 +715,25 @@ def main():
             logger.error(f"Error processing uploaded file: {e}")
     
     else:
-        st.info("👆 Please upload a SAHAL transaction text file to get started.")
+        st.info("👆 Please upload a SAHAL transaction file or CSV to get started.")
         
         # Show sample format
         with st.expander("📝 Expected File Format"):
             st.markdown("""
-            Your SAHAL transaction file should contain blocks separated by `[SAHAL]` with patterns like:
-            
+            **SAHAL Text File Format:**
             ```
             [SAHAL]
             $50.00 ayaad u dirtay John Doe(
             
             [SAHAL]
             Waxaad $25.00 ka heshay Jane Smith(
+            ```
             
-            [SAHAL]
-            Waxaad $10.00 ugu shubtay 252907123456
-            
-            [SAHAL]
-            You have received airtime of $5.00 from 252908123456
+            **CSV File Format:**
+            ```
+            Name,Sent,Received,Net,Sent Count,Received Count
+            John Doe,50.00,0.00,-50.00,1,0
+            Jane Smith,0.00,25.00,25.00,0,1
             ```
             """)
 
